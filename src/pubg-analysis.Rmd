@@ -1,0 +1,165 @@
+---
+title: "PUBG Finish Placement Prediction"
+output: html_notebook
+
+---
+
+# Introduction
+
+Player unknowns battleground competition on kaggle.
+
+The aim is to predict the winner of the 100-person battle royale shooter game.
+
+
+# Exploratory Data Analysis
+
+```{r}
+
+library(xgboost)
+library(magrittr)
+library(tidyverse)
+library(corrplot)
+library(GGally)
+# pacman::p_load(tidyverse, xgboost, magrittr)
+
+options(scipen = 999)
+
+train <- read.csv("../data/train_V2.csv")
+test <- read.csv("../data/test_V2.csv")
+
+source("pubg-model-helper.R")
+
+```
+
+First let's have a quick look at the data itself, to check for cleanliness.
+
+```{r summary-statistics}
+
+# show how many NAs in each column
+lapply(train, function(x) sum(is.na(x))) # apparently our data is clean!
+
+# percentage of unique values in each column
+lapply(train, function(x) sprintf("number of unique observations by column: %4f%%",
+                                  length(unique(x))/length(x)))
+
+# what does our data look like?
+head(train)
+train %>% names
+
+```
+
+Some thoughts around all the different ID columns:
+* How does Id relate to groupId?
+* Are shared groupId values the same team?
+* How many different matches are there?
+
+```{r}
+
+count_distinct_col <- function(data, key) {
+  data %>%
+    select(key) %>%
+    distinct %>%
+    nrow
+}
+
+# can 1 person play multiple games?
+
+# different game modes
+# what's fpp???
+train %>% count(matchType)
+
+# how many matches?
+count_distinct_col(train, "matchId")
+
+# how many groups?
+train %>%
+  group_by(groupId) %>%
+  summarise(count = n())
+
+count_distinct_col(train, "groupId")
+
+# average group size?
+train %>%
+  group_by(groupId) %>%
+  summarise(count = n()) %>%
+  summarise(avg_group_size = mean(count))
+
+
+```
+
+Might be worth splitting the data into different groups: one group for purely solo players, one group for duos and squads, and one group for special game modes?
+
+Check if special modes are solo or duo/squad and merge them onto the other 2 sets
+
+Keep in mind that in solo matches you can still have teamKills. These are suicides or accidental deaths from what I can tell
+
+```{r}
+# TODO: look at how group statistics are treated in solo matches, and vice versa
+
+# consider teamKills in solo?
+# even in solo mode, some people have a teamKill? what does this mean?
+# SUICIDES AND ACCIDENTAL DEATHS!
+
+train %>% 
+  filter(matchType == "solo",
+         teamKills == 1) %>%
+  head
+
+train %>%
+  filter(matchType == "crashfpp") %>%
+  count(groupId, matchId) %>% head(20)
+
+train %>% 
+  filter(groupId == "01d8a1a3ebf59f", matchId == "c392b6578f915b")
+```
+
+```{r split-data-by-group-size}
+
+```
+
+
+## Univariate visualisations
+
+> Probably should re-do this after splitting the data into solo and group games
+
+As someone that has played battle royales, I think that a correlation might exist between the number of kills and the win placement. Generally more skilled players in battle royale 'hunt' for kills, while lesser skilled players shy away from gunfights
+
+Other variables that are interesting to look at:
+* walkDistance
+* weaponsAcquired (might be correlated with number of kills)
+* winPlacePerc (target variable)
+* damageDealt
+* headShotKills (probably correlated with damageDealt. Does mean better aim)
+
+
+```{r correlation-matrix}
+
+# TODO: something about winPlacePerc is weird
+
+corrplot(cor(train %>% select(-c(Id, groupId, matchId, matchType, winPlacePerc))),
+         method = "color",
+         type = "upper", number.cex = 0.7,
+         tl.col = "black", tl.srt = 90, tl.cex = 0.75,
+         diag = FALSE
+         )
+
+```
+
+Initial findings/things to look into from the correlation plot:
+* Something weird about winPlacePerc
+* _Very strong_ negative correlation between rankPoints and killPoints, and winPoints and rankPoints. Investigate these relationships
+* damageDealt and DBNOs strongly positively correlation
+* killPoints and winPoints are strongly correlation
+* numGroups and maxPlace strongly positively correlated. Why?
+* killPlace negatively correlates strongly with a number of predictors. These are kills, killStreaks, longestKill, walkDistance, and weaponsAcquired
+
+```{r kill-stat-density}
+
+kill_pred_incides <- match(c("killPlace", "kills", "killStreaks", "longestKill", "walkDistance", "weaponsAcquired"), names(train))
+
+ggpairs(train, columns = kill_pred_incides, title = "Kill statistics investigation")
+
+```
+
+
+
