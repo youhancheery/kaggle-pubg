@@ -13,27 +13,33 @@ The aim is to predict the winner of the 100-person battle royale shooter game.
 
 # Exploratory Data Analysis
 
-```{r}
+```{r load-packages, include=FALSE, warning=FALSE}
 
-library(xgboost)
-library(magrittr)
-library(tidyverse)
-library(corrplot)
-library(GGally)
-# pacman::p_load(tidyverse, xgboost, magrittr)
+# library(xgboost)
+# library(magrittr)
+# library(tidyverse)
+# library(corrplot)
+# library(GGally)
+pacman::p_load(tidyverse, xgboost, magrittr, corrplot, GGally)
 
 options(scipen = 999)
 
-train <- read.csv("../data/train_V2.csv")
-test <- read.csv("../data/test_V2.csv")
 
 source("pubg-model-helper.R")
 
 ```
 
+```{r read-data, include=FALSE, warning=FALSE}
+
+train <- read.csv("../data/train_V2.csv")
+test <- read.csv("../data/test_V2.csv")
+
+```
+
+
 First let's have a quick look at the data itself, to check for cleanliness.
 
-```{r summary-statistics}
+```{r summary-statistics, include=FALSE}
 
 # show how many NAs in each column
 lapply(train, function(x) sum(is.na(x))) # apparently our data is clean!
@@ -53,7 +59,7 @@ Some thoughts around all the different ID columns:
 * Are shared groupId values the same team?
 * How many different matches are there?
 
-```{r}
+```{r distinct-counts, include=FALSE}
 
 count_distinct_col <- function(data, key) {
   data %>%
@@ -87,15 +93,23 @@ train %>%
 
 ```
 
+```{r some-cleaning, include=FALSE}
+
+# remove NA winPlacePerc player
+train %<>% filter(!is.na(winPlacePerc))
+
+```
+
+
 Might be worth splitting the data into different groups: one group for purely solo players, one group for duos and squads, and one group for special game modes?
 
 Check if special modes are solo or duo/squad and merge them onto the other 2 sets
 
 Keep in mind that in solo matches you can still have teamKills. These are suicides or accidental deaths from what I can tell
 
-```{r}
+```{r split-data-solo-group}
 # TODO: look at how group statistics are treated in solo matches, and vice versa
-
+# TODO: split the data by group
 # consider teamKills in solo?
 # even in solo mode, some people have a teamKill? what does this mean?
 # SUICIDES AND ACCIDENTAL DEATHS!
@@ -115,6 +129,16 @@ train %>%
 
 ```{r split-data-by-group-size}
 
+train %>% count(matchType)
+
+# solo-games only
+
+# duo-games only
+
+# squad-games only
+
+# team-games only (combined duo and squad)
+
 ```
 
 
@@ -132,7 +156,7 @@ Other variables that are interesting to look at:
 * headShotKills (probably correlated with damageDealt. Does mean better aim)
 
 
-```{r correlation-matrix}
+```{r correlation-matrix, echo=FALSE}
 
 # TODO: something about winPlacePerc is weird
 
@@ -146,6 +170,7 @@ corrplot(cor(train %>% select(-c(Id, groupId, matchId, matchType, winPlacePerc))
 ```
 
 Initial findings/things to look into from the correlation plot:
+
 * Something weird about winPlacePerc
 * _Very strong_ negative correlation between rankPoints and killPoints, and winPoints and rankPoints. Investigate these relationships
 * damageDealt and DBNOs strongly positively correlation
@@ -153,7 +178,9 @@ Initial findings/things to look into from the correlation plot:
 * numGroups and maxPlace strongly positively correlated. Why?
 * killPlace negatively correlates strongly with a number of predictors. These are kills, killStreaks, longestKill, walkDistance, and weaponsAcquired
 
-```{r kill-stat-density}
+```{r kill-stat-density, echo=FALSE}
+
+# DATA IS WAY TOO BIG TO RUN A GGPPAIRS
 
 kill_pred_incides <- match(c("killPlace", "kills", "killStreaks", "longestKill", "walkDistance", "weaponsAcquired"), names(train))
 
@@ -161,5 +188,32 @@ ggpairs(train, columns = kill_pred_incides, title = "Kill statistics investigati
 
 ```
 
+```{r target-var-explore, include=FALSE}
+# what am i actually predicting?
+# predicting the probability that the player will win
+# a 0 = player will absolutely lose
+# a 1 = player will absolutely win
+# are there any 0s and 1s in our data?
+train %>%
+  select(winPlacePerc) %>% head
+
+train %>%
+  summary()
+
+# why is there an NA in winPlacePerc?
+# TODO: REMOVE
+train %>% filter(is.na(winPlacePerc))
+
+# plot winPoints against winPlacePerc
+# this is shit - fix
+train %>%
+  sample_n(10000) %>%
+  ggplot(aes(x = log(winPoints), y = winPlacePerc)) +
+  geom_point() +
+  labs(x = "Win Points of Player",
+       y = "Win Placement Percentage",
+       title = "Win Points vs. Placement")
+
+```
 
 
